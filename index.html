@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Caronas do Aeroporto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  body { font-family: 'IBM Plex Sans', sans-serif; background:#050f1c; }
+  .font-mono { font-family: 'Space Mono', monospace; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!--
+  ============================================================
+  CONFIGURAÇÃO — troque pelos dados do SEU projeto Firebase
+  (Console Firebase > Configurações do projeto > Seus apps > SDK)
+  ============================================================
+-->
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyArlz_ZJ6iLjlwmd6LRrhtl0YiHYYqo81E",
+    authDomain: "caronas-cap.firebaseapp.com",
+    projectId: "caronas-cap",
+    storageBucket: "caronas-cap.firebasestorage.app",
+    messagingSenderId: "902932845785",
+    appId: "1:902932845785:web:028846444a1f2ba7be5ac8",
+  };
+  firebase.initializeApp(firebaseConfig);
+  window.db = firebase.firestore();
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+const AIRPORTS = {
+  GIG: { label: "Galeão", full: "Rio de Janeiro–Galeão (GIG)" },
+  SDU: { label: "Santos Dumont", full: "Santos Dumont (SDU)" },
+};
+const COLLECTION = "arrivals";
+
+function pad(n) { return n.toString().padStart(2, "0"); }
+function parseDateTime(d, t) { return new Date(`${d}T${t}:00`); }
+function formatDateLabel(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  const weekday = d.toLocaleDateString("pt-BR", { weekday: "long" });
+  const rest = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" });
+  return `${weekday}, ${rest}`;
+}
+
+function FlapChar({ char }) {
+  return (
+    <span className="inline-flex items-center justify-center bg-[#0a1c30] text-[#5eb1ec] rounded-[3px] border border-[#204a6e] w-[1.05em] mx-[1px] shadow-[inset_0_-2px_0_rgba(0,0,0,0.4)]">
+      {char}
+    </span>
+  );
+}
+function FlapText({ text, className = "" }) {
+  return (
+    <span className={`font-mono tracking-tight ${className}`}>
+      {text.split("").map((c, i) => <FlapChar char={c} key={i} />)}
+    </span>
+  );
+}
+
+function App() {
+  const [arrivals, setArrivals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(new Date());
+  const [filter, setFilter] = useState("ALL");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState({ data: "", horario: "" });
+  const [form, setForm] = useState({ nome: "", telefone: "", aeroporto: "GIG", data: "", horario: "" });
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000 * 30);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const unsub = window.db.collection(COLLECTION).onSnapshot(
+      (snap) => {
+        const list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        setArrivals(list);
+        setLoading(false);
+      },
+      (err) => {
+        console.error(err);
+        setError("Não foi possível conectar ao banco. Confira a configuração do Firebase.");
+        setLoading(false);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  const addArrival = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!form.nome.trim() || !form.telefone.trim() || !form.data || !form.horario) {
+      setError("Preencha nome de guerra, telefone, data e horário.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await window.db.collection(COLLECTION).add({
+        nome: form.nome.trim(),
+        telefone: form.telefone.trim(),
+        aeroporto: form.aeroporto,
+        data: form.data,
+        horario: form.horario,
+      });
+      setForm({ nome: "", telefone: "", aeroporto: form.aeroporto, data: "", horario: "" });
+    } catch (err) {
+      setError("Não foi possível salvar. Tenta de novo.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeArrival = async (id) => {
+    try {
+      await window.db.collection(COLLECTION).doc(id).delete();
+    } catch (err) {
+      setError("Não foi possível remover. Tenta de novo.");
+    }
+  };
+
+  const startEdit = (a) => {
+    setEditingId(a.id);
+    setEditDraft({ data: a.data, horario: a.horario });
+  };
+
+  const cancelEdit = () => { setEditingId(null); };
+
+  const saveEdit = async (id) => {
+    if (!editDraft.data || !editDraft.horario) return;
+    try {
+      await window.db.collection(COLLECTION).doc(id).update({
+        data: editDraft.data,
+        horario: editDraft.horario,
+      });
+      setEditingId(null);
+    } catch (err) {
+      setError("Não foi possível atualizar o horário. Tenta de novo.");
+    }
+  };
+
+  const sorted = useMemo(() => [...arrivals].sort(
+    (a, b) => parseDateTime(a.data, a.horario) - parseDateTime(b.data, b.horario)
+  ), [arrivals]);
+
+  const filtered = useMemo(() => filter === "ALL" ? sorted : sorted.filter((a) => a.aeroporto === filter), [sorted, filter]);
+
+  const upcoming = useMemo(() => sorted
+    .filter((a) => parseDateTime(a.data, a.horario) >= new Date(now.getTime() - 60 * 60 * 1000))
+    .slice(0, 3), [sorted, now]);
+
+  const grouped = useMemo(() => {
+    const map = new Map();
+    for (const a of filtered) {
+      if (!map.has(a.data)) map.set(a.data, []);
+      map.get(a.data).push(a);
+    }
+    return Array.from(map.entries());
+  }, [filtered]);
+
+  const clockStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  return (
+    <div className="min-h-screen bg-[#050f1c] text-[#d7e2ec]">
+      <header className="border-b border-[#204a6e] bg-[#0c2338] sticky top-0 z-10">
+        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div>
+              <h1 className="text-lg font-semibold tracking-wide">Caronas do Aeroporto</h1>
+              <p className="text-xs text-[#7b9ab8]">CAP 2/2026 — chegadas em GIG e SDU</p>
+            </div>
+          </div>
+          <FlapText text={clockStr} className="text-xl" />
+        </div>
+      </header>
+
+      <main className="max-w-3xl mx-auto px-4 py-6 space-y-8">
+        <section>
+          <h2 className="text-xs uppercase tracking-[0.2em] text-[#7b9ab8] mb-3">Chegando em breve</h2>
+          {upcoming.length === 0 ? (
+            <div className="bg-[#0c2338] border border-[#204a6e] rounded-md px-4 py-5 text-sm text-[#7b9ab8]">
+              Nenhuma chegada cadastrada ainda. Adicione a primeira abaixo.
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {upcoming.map((a) => (
+                <div key={a.id} className="flex items-center justify-between bg-[#0c2338] border border-[#204a6e] rounded-md px-4 py-3">
+                  <div>
+                    <div className="font-medium">{a.nome}</div>
+                    <div className="text-xs text-[#7b9ab8]">{AIRPORTS[a.aeroporto].label} · {formatDateLabel(a.data)}</div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <FlapText text={a.horario} className="text-base" />
+                    <a href={`tel:${a.telefone}`} className="text-[#7b9ab8] hover:text-[#5eb1ec]">☎</a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section>
+          <h2 className="text-xs uppercase tracking-[0.2em] text-[#7b9ab8] mb-3">Cadastrar chegada</h2>
+          <form onSubmit={addArrival} className="bg-[#0c2338] border border-[#204a6e] rounded-md p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#7b9ab8]">Nome de guerra</label>
+              <input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex: Santos"
+                className="bg-[#050f1c] border border-[#204a6e] rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5eb1ec]" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#7b9ab8]">Telefone</label>
+              <input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} placeholder="(51) 99999-9999"
+                className="bg-[#050f1c] border border-[#204a6e] rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5eb1ec]" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#7b9ab8]">Aeroporto</label>
+              <select value={form.aeroporto} onChange={(e) => setForm({ ...form, aeroporto: e.target.value })}
+                className="bg-[#050f1c] border border-[#204a6e] rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5eb1ec]">
+                <option value="GIG">Galeão (GIG)</option>
+                <option value="SDU">Santos Dumont (SDU)</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-[#7b9ab8]">Data</label>
+                <input type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })}
+                  className="bg-[#050f1c] border border-[#204a6e] rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5eb1ec]" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-[#7b9ab8]">Pouso</label>
+                <input type="time" value={form.horario} onChange={(e) => setForm({ ...form, horario: e.target.value })}
+                  className="bg-[#050f1c] border border-[#204a6e] rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5eb1ec]" />
+              </div>
+            </div>
+            {error && <div className="sm:col-span-2 text-sm text-[#e4572e]">{error}</div>}
+            <div className="sm:col-span-2">
+              <button type="submit" disabled={saving}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#5eb1ec] text-[#050f1c] font-semibold text-sm px-4 py-2 rounded hover:bg-[#7fc4ff] disabled:opacity-60">
+                {saving ? "Salvando..." : "+ Adicionar chegada"}
+              </button>
+            </div>
+          </form>
+          <p className="text-xs text-[#5c7f9e] mt-2">Os dados ficam visíveis para qualquer pessoa que abrir este link.</p>
+        </section>
+
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-[#7b9ab8]">Quadro de chegadas</h2>
+            <div className="flex gap-1 text-xs">
+              {["ALL", "GIG", "SDU"].map((f) => (
+                <button key={f} onClick={() => setFilter(f)}
+                  className={`px-2.5 py-1 rounded border ${filter === f ? "bg-[#5eb1ec] text-[#050f1c] border-[#5eb1ec] font-medium" : "border-[#204a6e] text-[#7b9ab8] hover:border-[#5eb1ec]"}`}>
+                  {f === "ALL" ? "Todos" : AIRPORTS[f].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="text-sm text-[#7b9ab8] px-1">Carregando quadro...</div>
+          ) : grouped.length === 0 ? (
+            <div className="bg-[#0c2338] border border-[#204a6e] rounded-md px-4 py-5 text-sm text-[#7b9ab8]">Nenhuma chegada para esse filtro.</div>
+          ) : (
+            <div className="space-y-5">
+              {grouped.map(([date, list]) => (
+                <div key={date}>
+                  <div className="text-sm font-medium text-[#5eb1ec] mb-2 capitalize">{formatDateLabel(date)}</div>
+                  <div className="border border-[#204a6e] rounded-md divide-y divide-[#204a6e] overflow-hidden">
+                    {list.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between bg-[#0c2338] px-4 py-3 gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{a.nome}</div>
+                          <div className="text-xs text-[#7b9ab8]">{AIRPORTS[a.aeroporto].full}</div>
+                        </div>
+
+                        {editingId === a.id ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <input type="date" value={editDraft.data}
+                              onChange={(e) => setEditDraft({ ...editDraft, data: e.target.value })}
+                              className="bg-[#050f1c] border border-[#204a6e] rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#5eb1ec]" />
+                            <input type="time" value={editDraft.horario}
+                              onChange={(e) => setEditDraft({ ...editDraft, horario: e.target.value })}
+                              className="bg-[#050f1c] border border-[#204a6e] rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#5eb1ec]" />
+                            <button onClick={() => saveEdit(a.id)} className="text-xs bg-[#5eb1ec] text-[#050f1c] font-medium px-2 py-1 rounded">Salvar</button>
+                            <button onClick={cancelEdit} className="text-xs text-[#7b9ab8] px-2 py-1">Cancelar</button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-4 shrink-0">
+                            <button onClick={() => startEdit(a)} className="text-sm hover:text-[#5eb1ec]" title="Editar horário">
+                              {a.horario} ✎
+                            </button>
+                            <a href={`tel:${a.telefone}`} className="text-xs text-[#7b9ab8] hover:text-[#5eb1ec] underline decoration-dotted">{a.telefone}</a>
+                            <button onClick={() => removeArrival(a.id)} className="text-[#5c7f9e] hover:text-[#e4572e]" title="Remover">✕</button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
