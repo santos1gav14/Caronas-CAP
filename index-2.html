@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Caronas do Aeroporto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  :root {
+    --bg: #050f1c;
+    --panel: #0c2338;
+    --border: #204a6e;
+    --muted: #7b9ab8;
+    --muted2: #5c7f9e;
+    --text: #d7e2ec;
+    --accent: #5eb1ec;
+    --accent-hover: #7fc4ff;
+    --alert: #e4572e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .mono { font-family: 'Space Mono', monospace; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 16px; }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; padding: 16px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+  .subtitle { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+  main { padding: 24px 0 48px; }
+  section { margin-bottom: 32px; }
+  h2.label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em;
+    color: var(--muted); margin: 0 0 12px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+  }
+  .empty { color: var(--muted); font-size: 14px; }
+  .flap-row { display: flex; align-items: center; justify-content: space-between; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; }
+  .flap-char {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #0a1c30; color: var(--accent); border: 1px solid var(--border);
+    border-radius: 3px; width: 1.1em; margin: 0 1px;
+    box-shadow: inset 0 -2px 0 rgba(0,0,0,0.4);
+  }
+  .name { font-weight: 500; }
+  .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  form.card { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  form.card .full { grid-column: 1 / -1; }
+  @media (max-width: 480px) { form.card { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; font-size: 14px; color: var(--text);
+    font-family: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  button {
+    font-family: inherit; cursor: pointer; border: none; border-radius: 6px;
+  }
+  .btn-primary {
+    background: var(--accent); color: var(--bg); font-weight: 600;
+    font-size: 14px; padding: 10px 16px;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.6; cursor: default; }
+  .hint { font-size: 12px; color: var(--muted2); margin-top: 8px; }
+  .error { color: var(--alert); font-size: 14px; }
+  .filters { display: flex; gap: 4px; }
+  .filter-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-size: 12px; padding: 5px 10px; border-radius: 6px;
+  }
+  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 500; }
+  .filters-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .date-group { margin-bottom: 20px; }
+  .date-title { font-size: 14px; font-weight: 500; color: var(--accent); margin-bottom: 8px; text-transform: capitalize; }
+  .board { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .board-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--panel); padding: 12px 16px; gap: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .board-row:last-child { border-bottom: none; }
+  .row-actions { display: flex; align-items: center; gap: 14px; flex-shrink: 0; font-size: 14px; }
+  .row-actions a { color: var(--muted); text-decoration: underline dotted; font-size: 12px; }
+  .row-actions a:hover { color: var(--accent); }
+  .icon-btn { background: transparent; color: var(--muted2); font-size: 16px; padding: 2px; }
+  .icon-btn:hover { color: var(--alert); }
+  .time-btn { background: transparent; color: var(--text); font-size: 14px; padding: 0; }
+  .time-btn:hover { color: var(--accent); }
+  .edit-row input { width: auto; font-size: 12px; padding: 5px 8px; }
+  .edit-row { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .save-btn { background: var(--accent); color: var(--bg); font-size: 12px; font-weight: 500; padding: 5px 8px; }
+  .cancel-btn { background: transparent; color: var(--muted); font-size: 12px; padding: 5px 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div>
+      <h1>Caronas do Aeroporto</h1>
+      <p class="subtitle">CAP 2/2026 — chegadas em GIG e SDU</p>
+    </div>
+    <div id="clock" class="mono" style="font-size:20px;"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <h2 class="label">Chegando em breve</h2>
+    <div id="upcoming"></div>
+  </section>
+
+  <section>
+    <h2 class="label">Cadastrar chegada</h2>
+    <form class="card" id="add-form">
+      <div>
+        <label>Nome de guerra</label>
+        <input id="f-nome" placeholder="Ex: Santos" />
+      </div>
+      <div>
+        <label>Telefone</label>
+        <input id="f-telefone" placeholder="(51) 99999-9999" />
+      </div>
+      <div>
+        <label>Aeroporto</label>
+        <select id="f-aeroporto">
+          <option value="GIG">Galeão (GIG)</option>
+          <option value="SDU">Santos Dumont (SDU)</option>
+        </select>
+      </div>
+      <div class="grid2">
+        <div>
+          <label>Data</label>
+          <input type="date" id="f-data" />
+        </div>
+        <div>
+          <label>Pouso</label>
+          <input type="time" id="f-horario" />
+        </div>
+      </div>
+      <div class="full" id="form-error"></div>
+      <div class="full">
+        <button type="submit" class="btn-primary" id="submit-btn">+ Adicionar chegada</button>
+      </div>
+    </form>
+    <p class="hint">Os dados ficam visíveis para qualquer pessoa que abrir este link.</p>
+  </section>
+
+  <section>
+    <div class="filters-header">
+      <h2 class="label" style="margin:0;">Quadro de chegadas</h2>
+      <div class="filters" id="filters">
+        <button class="filter-btn active" data-f="ALL">Todos</button>
+        <button class="filter-btn" data-f="GIG">Galeão</button>
+        <button class="filter-btn" data-f="SDU">Santos Dumont</button>
+      </div>
+    </div>
+    <div id="board"></div>
+  </section>
+</main>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyArlz_ZJ6iLjlwmd6LRrhtl0YiHYYqo81E",
+  authDomain: "caronas-cap.firebaseapp.com",
+  projectId: "caronas-cap",
+  storageBucket: "caronas-cap.firebasestorage.app",
+  messagingSenderId: "902932845785",
+  appId: "1:902932845785:web:028846444a1f2ba7be5ac8",
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const COLLECTION = "arrivals";
+
+const AIRPORTS = {
+  GIG: { label: "Galeão", full: "Rio de Janeiro–Galeão (GIG)" },
+  SDU: { label: "Santos Dumont", full: "Santos Dumont (SDU)" },
+};
+
+let arrivals = [];
+let filter = "ALL";
+let editingId = null;
+
+function pad(n) { return n.toString().padStart(2, "0"); }
+function parseDateTime(d, t) { return new Date(`${d}T${t}:00`); }
+function formatDateLabel(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  const weekday = d.toLocaleDateString("pt-BR", { weekday: "long" });
+  const rest = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" });
+  return `${weekday}, ${rest}`;
+}
+function esc(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+function flapText(text) {
+  return text.split("").map((c) => `<span class="flap-char mono">${esc(c)}</span>`).join("");
+}
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById("clock").innerHTML = flapText(`${pad(now.getHours())}:${pad(now.getMinutes())}`);
+}
+updateClock();
+setInterval(updateClock, 30000);
+
+function render() {
+  const sorted = [...arrivals].sort((a, b) => parseDateTime(a.data, a.horario) - parseDateTime(b.data, b.horario));
+  const now = new Date();
+  const upcoming = sorted.filter((a) => parseDateTime(a.data, a.horario) >= new Date(now.getTime() - 60 * 60 * 1000)).slice(0, 3);
+
+  const upcomingEl = document.getElementById("upcoming");
+  if (upcoming.length === 0) {
+    upcomingEl.innerHTML = `<div class="card empty">Nenhuma chegada cadastrada ainda. Adicione a primeira abaixo.</div>`;
+  } else {
+    upcomingEl.innerHTML = upcoming.map((a) => `
+      <div class="flap-row">
+        <div>
+          <div class="name">${esc(a.nome)}</div>
+          <div class="meta">${AIRPORTS[a.aeroporto].label} · ${formatDateLabel(a.data)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;">
+          <span class="mono">${flapText(a.horario)}</span>
+          <a href="tel:${esc(a.telefone)}" style="color:var(--muted);text-decoration:none;">☎</a>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  const filtered = filter === "ALL" ? sorted : sorted.filter((a) => a.aeroporto === filter);
+  const boardEl = document.getElementById("board");
+  if (filtered.length === 0) {
+    boardEl.innerHTML = `<div class="card empty">Nenhuma chegada para esse filtro.</div>`;
+    return;
+  }
+  const groups = new Map();
+  for (const a of filtered) {
+    if (!groups.has(a.data)) groups.set(a.data, []);
+    groups.get(a.data).push(a);
+  }
+  boardEl.innerHTML = Array.from(groups.entries()).map(([date, list]) => `
+    <div class="date-group">
+      <div class="date-title">${formatDateLabel(date)}</div>
+      <div class="board">
+        ${list.map((a) => a.id === editingId ? `
+          <div class="board-row">
+            <div style="min-width:0;">
+              <div class="name">${esc(a.nome)}</div>
+              <div class="meta">${AIRPORTS[a.aeroporto].full}</div>
+            </div>
+            <div class="edit-row">
+              <input type="date" id="edit-data" value="${a.data}" />
+              <input type="time" id="edit-horario" value="${a.horario}" />
+              <button class="save-btn" onclick="saveEdit('${a.id}')">Salvar</button>
+              <button class="cancel-btn" onclick="cancelEdit()">Cancelar</button>
+            </div>
+          </div>
+        ` : `
+          <div class="board-row">
+            <div style="min-width:0;">
+              <div class="name">${esc(a.nome)}</div>
+              <div class="meta">${AIRPORTS[a.aeroporto].full}</div>
+            </div>
+            <div class="row-actions">
+              <button class="time-btn" onclick="startEdit('${a.id}')" title="Editar horário">${esc(a.horario)} ✎</button>
+              <a href="tel:${esc(a.telefone)}">${esc(a.telefone)}</a>
+              <button class="icon-btn" onclick="removeArrival('${a.id}', '${esc(a.nome).replace(/'/g, "\\'")}')" title="Remover">✕</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `).join("");
+}
+
+db.collection(COLLECTION).onSnapshot(
+  (snap) => {
+    arrivals = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    render();
+  },
+  (err) => {
+    console.error(err);
+    document.getElementById("board").innerHTML = `<div class="card error">Não foi possível conectar ao banco. Confira a configuração do Firebase.</div>`;
+  }
+);
+
+document.getElementById("filters").addEventListener("click", (e) => {
+  const btn = e.target.closest(".filter-btn");
+  if (!btn) return;
+  filter = btn.dataset.f;
+  document.querySelectorAll(".filter-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  render();
+});
+
+document.getElementById("add-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nome = document.getElementById("f-nome").value.trim();
+  const telefone = document.getElementById("f-telefone").value.trim();
+  const aeroporto = document.getElementById("f-aeroporto").value;
+  const data = document.getElementById("f-data").value;
+  const horario = document.getElementById("f-horario").value;
+  const errorEl = document.getElementById("form-error");
+  errorEl.textContent = "";
+
+  if (!nome || !telefone || !data || !horario) {
+    errorEl.innerHTML = `<div class="error">Preencha nome de guerra, telefone, data e horário.</div>`;
+    return;
+  }
+
+  const btn = document.getElementById("submit-btn");
+  btn.disabled = true;
+  btn.textContent = "Salvando...";
+  try {
+    await db.collection(COLLECTION).add({ nome, telefone, aeroporto, data, horario });
+    document.getElementById("f-nome").value = "";
+    document.getElementById("f-telefone").value = "";
+    document.getElementById("f-data").value = "";
+    document.getElementById("f-horario").value = "";
+  } catch (err) {
+    errorEl.innerHTML = `<div class="error">Não foi possível salvar. Tenta de novo.</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "+ Adicionar chegada";
+  }
+});
+
+window.removeArrival = async function (id, nome) {
+  if (!confirm(`Remover o registro de ${nome}?`)) return;
+  try {
+    await db.collection(COLLECTION).doc(id).delete();
+  } catch (err) {
+    alert("Não foi possível remover. Tenta de novo.");
+  }
+};
+
+window.startEdit = function (id) {
+  editingId = id;
+  render();
+};
+
+window.cancelEdit = function () {
+  editingId = null;
+  render();
+};
+
+window.saveEdit = async function (id) {
+  const data = document.getElementById("edit-data").value;
+  const horario = document.getElementById("edit-horario").value;
+  if (!data || !horario) return;
+  try {
+    await db.collection(COLLECTION).doc(id).update({ data, horario });
+    editingId = null;
+  } catch (err) {
+    alert("Não foi possível atualizar o horário. Tenta de novo.");
+  }
+};
+</script>
+</body>
+</html>
